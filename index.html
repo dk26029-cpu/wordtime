@@ -865,6 +865,66 @@
     $("reviewSave").hidden = items.length === 0;
   }
 
+  // 표·두 단 사진 정리: 표의 가로선·세로선을 지우고, 세로선(또는 가운데 빈 띠)을 기준으로 칸을 나눠 따로 읽게 함
+  // 한 줄을 왼쪽 끝부터 오른쪽 끝까지 읽으면 왼쪽 단과 오른쪽 단의 단어가 섞이기 때문
+  function splitColumns(canvas) {
+    if (!canvas || !canvas.getContext) return { parts: [canvas], table: false };
+    const W = canvas.width, H = canvas.height, ctx = canvas.getContext("2d");
+    const img = ctx.getImageData(0, 0, W, H), p = img.data;
+    const dark = new Uint8Array(W * H);
+    for (let i = 0, j = 0; i < p.length; i += 4, j++) dark[j] = p[i] < 140 ? 1 : 0;
+    const whiten = (x0, y0, x1, y1) => {
+      for (let y = Math.max(0, y0); y <= Math.min(H - 1, y1); y++)
+        for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) { const j = y * W + x, i = j * 4; p[i] = p[i + 1] = p[i + 2] = 255; dark[j] = 0; }
+    };
+    // 1) 가로선: 한 줄의 절반 이상이 진한 픽셀이면 표 선
+    let lines = 0;
+    for (let y = 0; y < H; y++) {
+      let n = 0; for (let x = 0; x < W; x++) n += dark[y * W + x];
+      if (n > W * 0.5) { whiten(0, y - 1, W - 1, y + 1); lines++; }
+    }
+    // 2) 세로선: 한 세로줄의 절반 이상이 진하면 표 선 → 지우고 칸 경계로 씀
+    const col = new Uint32Array(W);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) col[x] += dark[y * W + x];
+    const cuts = [];
+    for (let x = 0; x < W; x++) {
+      if (col[x] > H * 0.5) {
+        let x1 = x; while (x1 + 1 < W && col[x1 + 1] > H * 0.3) x1++;
+        whiten(x - 2, 0, x1 + 2, H - 1);
+        cuts.push([x - 2, x1 + 2]); x = x1 + 2; lines++;
+      }
+    }
+    // 3) 세로선이 없으면: 가운데쯤의 넓은 빈 세로 띠로 두 단 나누기
+    if (!cuts.length) {
+      let best = null, run = null;
+      for (let x = Math.round(W * 0.25); x < W * 0.75; x++) {
+        if (col[x] <= H * 0.003) { if (!run) run = [x, x]; else run[1] = x; }
+        else { if (run && (!best || run[1] - run[0] > best[1] - best[0])) best = run; run = null; }
+      }
+      if (run && (!best || run[1] - run[0] > best[1] - best[0])) best = run;
+      if (best && best[1] - best[0] > W * 0.04) cuts.push(best);
+    }
+    ctx.putImageData(img, 0, 0);
+    if (!cuts.length) return { parts: [canvas], table: false };
+    // 4) 칸 잘라내기: 번호 칸처럼 좁은 칸(폭 12% 미만)과 빈 칸은 건너뜀, 글자가 작으면 키움
+    const edges = [[-1, -1], ...cuts, [W, W]], parts = [];
+    for (let k = 0; k + 1 < edges.length; k++) {
+      const x0 = edges[k][1] + 1, x1 = edges[k + 1][0] - 1, w = x1 - x0 + 1;
+      if (w < W * 0.12) continue;
+      let ink = 0; for (let x = x0; x <= x1; x++) ink += col[x];
+      if (ink < H * 0.5) continue;
+      const s = Math.min(2.5, Math.max(1, 1100 / w));
+      const c = document.createElement("canvas");
+      c.width = Math.round(w * s); c.height = Math.round(H * s);
+      const cx = c.getContext("2d");
+      cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height);
+      cx.imageSmoothingQuality = "high";
+      cx.drawImage(canvas, x0, 0, w, H, 0, 0, c.width, c.height);
+      parts.push(c);
+    }
+    return parts.length ? { parts, table: lines > 0 } : { parts: [canvas], table: false };
+  }
+
   async function handlePhoto(file) {
     if (inApp && !aiSample) return showReview(AI_STATE_TEXT[aiState] || AI_STATE_TEXT.nosample, []);
     if (aiSample) {
@@ -895,8 +955,22 @@
         },
         errorHandler: e => fail(e),
       }), failed]);
-      const { data } = await Promise.race([worker.recognize(await prepareImage(file)), failed]);
-      const items = parseOcrText(data.text);
+      const { parts, table } = splitColumns(await prepareImage(file));
+      // 표를 정리한 칸은 "한 덩어리 글"로 읽는 게 정확함 (PSM 6)
+      if (parts.length > 1 || table) await Promise.race([worker.setParameters({ tessedit_pageseg_mode: "6" }), failed]);
+      const texts = [];
+      for (let k = 0; k < parts.length; k++) {
+        if (parts.length > 1) $("reviewStatus").textContent = `${parts.length}개 칸으로 나눠서 읽는 중이에요... (${k + 1}/${parts.length})`;
+        const { data } = await Promise.race([worker.recognize(parts[k]), failed]);
+        texts.push(data.text);
+      }
+      // 칸별로 줄 단위 규칙과 붙여넣기 규칙(단어 목록·뜻 목록 짝짓기)을 둘 다 써보고, 뜻까지 찾은 게 많은 쪽을 씀
+      const byLine = texts.flatMap(t => parseOcrText(t));
+      const byRun = parsePasted(texts.join("\n"));
+      const good = list => list.filter(x => x.meaning).length;
+      const seenW = new Set();
+      const items = (good(byRun) > good(byLine) ? byRun : byLine)
+        .filter(x => x.word && !seenW.has(x.word.toLowerCase()) && seenW.add(x.word.toLowerCase()));
       showReview(items.length
         ? `${items.length}개를 찾았어요. 틀린 글자는 고치고, 저장할 단어만 체크하세요.`
         : "단어와 뜻을 찾지 못했어요. 사진을 더 밝고 가깝게 다시 찍거나, 위에서 직접 입력해주세요.", items);
