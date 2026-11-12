@@ -25,6 +25,9 @@
     --mark: #ffd84d;
     --on-mark: #1b2a4a;
     --scrim: rgba(27, 42, 74, 0.45);
+    --cam-bg: #0b0f1a;
+    --cam-fg: #f4f7fc;
+    --cam-dim: rgba(0, 0, 0, 0.45);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -169,6 +172,46 @@
   #sheetText { line-height: 1.55; white-space: pre-line; }
   #sheet .row { display: flex; gap: 8px; }
   #sheet .row .btn { flex: 1; }
+  .photorow { display: flex; gap: 8px; }
+  .photorow .btn { flex: 1; }
+  /* 카메라 화면: 밝은/어두운 모드와 상관없이 항상 어두운 뷰파인더 */
+  #cam {
+    position: fixed; inset: 0; z-index: 30; background: var(--cam-bg); color: var(--cam-fg);
+    display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px);
+  }
+  .camview { position: relative; flex: 1; overflow: hidden; }
+  #camVideo, #camShot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #camShot { object-fit: contain; background: var(--cam-bg); }
+  .camguide {
+    position: absolute; left: 5%; right: 5%; top: 10%; bottom: 10%;
+    border: 3px solid var(--mark); border-radius: 10px;
+    box-shadow: 0 0 0 100vmax var(--cam-dim);
+    display: flex; justify-content: center; align-items: flex-start;
+  }
+  .camguide span { position: absolute; bottom: calc(100% + 8px); padding: 4px 10px; border-radius: 4px; background: var(--cam-dim); font-size: 14px; text-align: center; }
+  .camerr {
+    position: absolute; left: 16px; right: 16px; top: 50%; transform: translateY(-50%);
+    padding: 16px; border-radius: 8px; background: var(--cam-dim); line-height: 1.6; text-align: center;
+  }
+  .cambar {
+    min-height: 108px; background: var(--cam-bg);
+    padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  }
+  .cambar > div { display: flex; align-items: center; gap: 10px; min-height: 76px; }
+  #camLive { justify-content: space-between; }
+  .cambtn {
+    font: inherit; font-size: 15px; font-weight: 700; padding: 11px 16px; cursor: pointer; min-width: 88px;
+    border: 2px solid var(--cam-fg); border-radius: 6px; background: transparent; color: var(--cam-fg);
+  }
+  .cambtn.go { background: var(--mark); color: var(--on-mark); border-color: var(--mark); }
+  #camReview .cambtn, #camFail .cambtn { flex: 1; }
+  .cambtn:focus-visible, .shutter:focus-visible { outline: 3px solid var(--mark); outline-offset: 3px; }
+  .shutter {
+    width: 74px; height: 74px; flex: none; border-radius: 50%; cursor: pointer;
+    border: 5px solid var(--cam-fg); background: var(--mark); box-shadow: inset 0 0 0 3px var(--cam-bg);
+  }
+  .shutter:active { transform: scale(0.94); }
+  .camspacer { min-width: 88px; }
   @media (prefers-reduced-motion: no-preference) {
     #sheet .box { animation: rise 0.18s ease-out; }
     @keyframes rise { from { transform: translateY(12px); opacity: 0.6; } }
@@ -191,8 +234,12 @@
         <input id="inGroup" list="groupList" placeholder="묶음 (예: Lesson 3, 선택)" autocomplete="off">
         <datalist id="groupList"></datalist>
         <button class="btn" id="addBtn">단어 추가</button>
-        <button class="btn ghost" id="photoBtn">사진으로 추가</button>
+        <div class="photorow">
+          <button class="btn ghost" id="camBtn">카메라로 찍기</button>
+          <button class="btn ghost" id="photoBtn">앨범에서 고르기</button>
+        </div>
         <input type="file" id="photoInput" accept="image/*" hidden>
+        <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
       </div>
       <div id="review">
         <h3>인식 결과 확인</h3>
@@ -237,6 +284,30 @@
     <button data-target="quiz">퀴즈</button>
     <button data-target="stats">통계</button>
   </nav>
+
+  <div id="cam" hidden role="dialog" aria-modal="true" aria-label="카메라로 단어장 찍기">
+    <div class="camview">
+      <video id="camVideo" playsinline muted autoplay></video>
+      <img id="camShot" alt="찍은 사진" hidden>
+      <div class="camguide" id="camGuide"><span>단어와 뜻이 이 칸 안에 다 들어오게 맞춰주세요</span></div>
+      <p class="camerr" id="camErr" role="alert" hidden></p>
+    </div>
+    <div class="cambar">
+      <div id="camLive">
+        <button class="cambtn" id="camClose">닫기</button>
+        <button class="shutter" id="shutter" aria-label="찍기"></button>
+        <span class="camspacer"></span>
+      </div>
+      <div id="camReview" hidden>
+        <button class="cambtn" id="camRetake">다시 찍기</button>
+        <button class="cambtn go" id="camUse">이 사진으로 읽기</button>
+      </div>
+      <div id="camFail" hidden>
+        <button class="cambtn" id="camFailClose">닫기</button>
+        <button class="cambtn go" id="camNative">기본 카메라로 찍기</button>
+      </div>
+    </div>
+  </div>
 
   <div id="sheet" hidden>
     <div class="box" role="dialog" aria-modal="true" aria-labelledby="sheetText">
@@ -683,20 +754,31 @@
       return;
     }
     showReview("글자를 읽는 중이에요... 처음엔 인식 데이터를 내려받느라 오래 걸릴 수 있어요.", []);
+    // 인식 데이터를 못 받으면 Tesseract는 오류를 내지 않고 멈춰버려서, 오류 알림과 진행 없는 시간(90초)으로 끊음
+    let fail, stall, worker = null;
+    const failed = new Promise((_, reject) => { fail = reject; });
+    const kick = () => { clearTimeout(stall); stall = setTimeout(() => fail(new Error("멈춤")), 90000); };
     try {
-      await loadTesseract();
-      const worker = await Tesseract.createWorker("kor+eng", 1, {
-        logger: m => { if (m.status === "recognizing text") $("reviewStatus").textContent = `글자를 읽는 중이에요... ${Math.round(m.progress * 100)}%`; }
-      });
-      const { data } = await worker.recognize(await prepareImage(file));
-      await worker.terminate();
+      kick();
+      await Promise.race([loadTesseract(), failed]);
+      worker = await Promise.race([Tesseract.createWorker("kor+eng", 1, {
+        logger: m => {
+          kick();
+          if (m.status === "recognizing text") $("reviewStatus").textContent = `글자를 읽는 중이에요... ${Math.round(m.progress * 100)}%`;
+        },
+        errorHandler: e => fail(e),
+      }), failed]);
+      const { data } = await Promise.race([worker.recognize(await prepareImage(file)), failed]);
       const items = parseOcrText(data.text);
       showReview(items.length
         ? `${items.length}개를 찾았어요. 틀린 글자는 고치고, 저장할 단어만 체크하세요.`
         : "단어와 뜻을 찾지 못했어요. 사진을 더 밝고 가깝게 다시 찍거나, 위에서 직접 입력해주세요.", items);
     } catch (e) {
       console.error(e);
-      showReview("사진 인식에 실패했어요. 인터넷 연결을 확인하거나, 위에서 직접 입력해주세요.", []);
+      showReview("사진 인식에 실패했어요. 처음 한 번은 인식 데이터를 받아야 해서 인터넷이 필요해요. 연결을 확인하고 다시 찍거나, 위에서 직접 입력해주세요.", []);
+    } finally {
+      clearTimeout(stall);
+      if (worker) worker.terminate().catch(() => {});
     }
   }
 
@@ -704,11 +786,116 @@
     if (inApp && aiState !== "ready") return showReview(AI_STATE_TEXT[aiState], []);   // 앱 안에서는 Tesseract가 막혀 있음
     $("photoInput").click();
   });
-  $("photoInput").addEventListener("change", e => {
+  const onPicked = e => {
     const f = e.target.files[0];
     e.target.value = "";
     if (f) handlePhoto(f);
+  };
+  $("photoInput").addEventListener("change", onPicked);
+  $("camInput").addEventListener("change", onPicked);
+
+  // ---- 카메라로 찍기: 앱 안에서 카메라를 켜고, 안내 칸 부분만 잘라서 글자 인식으로 넘김 ----
+  // 카메라를 못 켜면(권한 거부, 지원 안 함) 폰의 기본 카메라 앱으로 대신 찍음
+  const camEl = $("cam"), video = $("camVideo");
+  let camStream = null, camBlob = null;
+  function camMode(mode) {
+    $("camLive").hidden = mode !== "live";
+    $("camReview").hidden = mode !== "shot";
+    $("camFail").hidden = mode !== "fail";
+    $("camGuide").hidden = mode !== "live";
+    $("camErr").hidden = mode !== "fail";
+    video.hidden = mode === "shot";
+    $("camShot").hidden = mode !== "shot";
+  }
+  function stopCam() {
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    camStream = null; video.srcObject = null;
+  }
+  function clearShot() {
+    const img = $("camShot");
+    if (img.src) URL.revokeObjectURL(img.src);
+    img.removeAttribute("src");
+    camBlob = null;
+  }
+  function closeCam() {
+    stopCam(); clearShot();
+    camEl.hidden = true;
+    $("camBtn").focus();
+  }
+  async function openCam() {
+    // 아티팩트 안에서는 실시간 카메라가 막혀 있고, 오래된 브라우저나 http 주소에서는 카메라를 못 켬 → 기본 카메라 앱
+    if (inApp || !navigator.mediaDevices?.getUserMedia || !window.isSecureContext) return $("camInput").click();
+    clearShot();
+    camEl.hidden = false; camMode("live");
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }
+      });
+      if (camEl.hidden) return stopCam();   // 켜지는 동안 닫음
+      video.srcObject = camStream;
+      await video.play().catch(() => {});
+      const track = camStream.getVideoTracks()[0];
+      try {   // 지원하는 폰이면 계속 초점 맞추기
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        if (caps.focusMode && caps.focusMode.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+      } catch (e) {}
+      $("shutter").focus();
+    } catch (e) {
+      console.error(e);
+      stopCam();
+      if (camEl.hidden) return;
+      $("camErr").textContent =
+        e && (e.name === "NotAllowedError" || e.name === "SecurityError") ? "카메라 사용이 허용되지 않았어요. 브라우저 설정에서 이 사이트의 카메라를 허용하거나, 아래 버튼으로 기본 카메라 앱을 써주세요."
+        : e && (e.name === "NotFoundError" || e.name === "OverconstrainedError") ? "이 기기에서 카메라를 찾지 못했어요. 닫고 '앨범에서 고르기'를 써주세요."
+        : e && e.name === "NotReadableError" ? "다른 앱이 카메라를 쓰고 있어요. 그 앱을 닫고 다시 시도하거나, 아래 버튼으로 기본 카메라 앱을 써주세요."
+        : "카메라를 켜지 못했어요. 아래 버튼으로 기본 카메라 앱을 써주세요.";
+      camMode("fail");
+    }
+  }
+  // 화면에 보이는 안내 칸 위치를 실제 카메라 영상의 픽셀 위치로 바꿈 (영상은 화면을 꽉 채우게 잘려서 보임)
+  function guideCrop() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const r = video.getBoundingClientRect(), g = $("camGuide").getBoundingClientRect();
+    const s = Math.max(r.width / vw, r.height / vh);
+    const ox = r.left + (r.width - vw * s) / 2, oy = r.top + (r.height - vh * s) / 2;
+    let x = (g.left - ox) / s, y = (g.top - oy) / s, w = g.width / s, h = g.height / s;
+    const px = w * 0.04, py = h * 0.04;   // 가장자리 글자가 잘리지 않게 조금 넓게
+    x = Math.max(0, x - px); y = Math.max(0, y - py);
+    w = Math.min(vw - x, w + 2 * px); h = Math.min(vh - y, h + 2 * py);
+    return { x, y, w, h };
+  }
+  async function snap() {
+    if (!camStream || !video.videoWidth) return;
+    const { x, y, w, h } = guideCrop();
+    const c = document.createElement("canvas");
+    c.width = Math.round(w); c.height = Math.round(h);
+    c.getContext("2d").drawImage(video, x, y, w, h, 0, 0, c.width, c.height);
+    const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.92));
+    if (!blob) return;
+    stopCam();
+    camBlob = blob;
+    $("camShot").src = URL.createObjectURL(blob);
+    camMode("shot");
+    $("camUse").focus();
+  }
+  $("camBtn").addEventListener("click", () => {
+    if (inApp && aiState !== "ready") return showReview(AI_STATE_TEXT[aiState], []);
+    openCam();
   });
+  $("shutter").addEventListener("click", snap);
+  $("camClose").addEventListener("click", closeCam);
+  $("camFailClose").addEventListener("click", closeCam);
+  $("camRetake").addEventListener("click", openCam);
+  $("camUse").addEventListener("click", () => {
+    const blob = camBlob;
+    closeCam();
+    if (blob) handlePhoto(blob);
+  });
+  $("camNative").addEventListener("click", () => { closeCam(); $("camInput").click(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !camEl.hidden) closeCam(); });
+  // 다른 앱으로 넘어가면 카메라를 끔 (배터리·개인정보)
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && camStream) closeCam(); });
   $("reviewCancel").addEventListener("click", () => { photoCtl?.abort(); reviewEl.classList.remove("open"); });
   $("reviewSave").addEventListener("click", () => {
     const group = $("inGroup").value.trim();
