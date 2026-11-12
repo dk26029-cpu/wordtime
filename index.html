@@ -3,6 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 웹앱(홈 화면에 추가) 설정: 아티팩트 버전에는 들어가지 않음 -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#1b2a4a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="단어타임">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <!--ARTIFACT-START-->
 <title>단어타임</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -590,6 +599,33 @@
     });
   }
 
+  // 글자 인식 전 사진 다듬기: 폰 사진 방향 맞추기, 크기 맞추기, 흑백 + 대비 높이기 (인식률 향상)
+  async function prepareImage(file) {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const long = Math.max(bmp.width, bmp.height);
+      const scale = long > 2400 ? 2400 / long : long < 1200 ? 1200 / long : 1;
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+      const ctx = c.getContext("2d");
+      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close?.();
+      const img = ctx.getImageData(0, 0, c.width, c.height), p = img.data;
+      let min = 255, max = 0;
+      for (let i = 0; i < p.length; i += 4) {
+        const g = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+        p[i] = g; if (g < min) min = g; if (g > max) max = g;
+      }
+      const range = Math.max(1, max - min);
+      for (let i = 0; i < p.length; i += 4) { const v = (p[i] - min) * 255 / range; p[i] = p[i + 1] = p[i + 2] = v; }
+      ctx.putImageData(img, 0, 0);
+      return c;
+    } catch (e) {
+      console.error(e);
+      return file;   // 다듬기에 실패하면 원본 그대로 인식
+    }
+  }
+
   // 한 줄에서 영어 단어(앞부분 영문)와 뜻(한글이 들어간 나머지)을 분리
   function parseOcrText(text) {
     const out = [];
@@ -597,10 +633,13 @@
       const line = raw.replace(/\s+/g, " ").trim();
       const m = line.match(/[A-Za-z][A-Za-z'’\- ]*[A-Za-z]|[A-Za-z]/);
       if (!m) continue;
+      const word = m[0].trim().replace(/\s+(n|v|a|ad|adj|adv|prep|conj|pron|int|phr)$/i, "");   // 품사 표시(v. adj.) 떼기
       const meaning = line.replace(m[0], " ")
         .replace(/^[\s\-–—:=·.\d)|]+|[\s\-–—:=·|]+$/g, "").trim();
-      if (!/[가-힣]/.test(meaning)) continue;
-      out.push({ word: m[0].trim(), meaning });
+      if (/[가-힣]/.test(meaning)) { out.push({ word, meaning }); continue; }
+      // 뜻을 못 읽은 단어줄(번호로 시작하거나 영어 1~4단어 + 깨진 글자)은 단어만 살리고 뜻은 직접 입력
+      const isWordLine = word.split(" ").length <= 4 && (/^\s*\d+[.)]/.test(line) || (meaning && !/[A-Za-z]{3,}/.test(meaning)));
+      if (isWordLine) out.push({ word, meaning: "", unsure: true });
     }
     return out;
   }
@@ -616,12 +655,14 @@
     items.forEach(it => {
       const dup = !!findWord(it.word);
       const row = el("div", "rv" + (dup ? " dup" : ""));
-      const cb = el("input"); cb.type = "checkbox"; cb.checked = !dup;
+      const cb = el("input"); cb.type = "checkbox"; cb.checked = !dup && !it.unsure;
       const iw = el("input"); iw.type = "text"; iw.value = it.word;
       const im = el("input"); im.type = "text"; im.value = it.meaning;
+      if (it.unsure) { im.placeholder = "뜻 직접 입력"; im.addEventListener("input", () => { cb.checked = !!im.value.trim(); }); }
       it.cb = cb; it.iw = iw; it.im = im;
       row.append(cb, iw, im);
       if (dup) row.append(el("div", "rvnote", "이미 단어장에 있어요 (체크하면 뜻을 바꿔요)"));
+      else if (it.unsure) row.append(el("div", "rvnote", "뜻을 읽지 못했어요. 뜻을 적으면 저장돼요."));
       box.appendChild(row);
     });
     $("reviewSave").hidden = items.length === 0;
@@ -647,7 +688,7 @@
       const worker = await Tesseract.createWorker("kor+eng", 1, {
         logger: m => { if (m.status === "recognizing text") $("reviewStatus").textContent = `글자를 읽는 중이에요... ${Math.round(m.progress * 100)}%`; }
       });
-      const { data } = await worker.recognize(file);
+      const { data } = await worker.recognize(await prepareImage(file));
       await worker.terminate();
       const items = parseOcrText(data.text);
       showReview(items.length
@@ -1013,6 +1054,12 @@
   renderWords();
   renderTimer();
   initCloud();
+
+  // 웹사이트로 열었을 때: 오프라인 실행(서비스 워커) + 브라우저가 단어장 데이터를 지우지 않도록 요청
+  if (!window.claude && (location.protocol === "https:" || location.hostname === "localhost")) {
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(e => console.error(e));
+    navigator.storage?.persist?.().catch(() => {});
+  }
 </script>
 <!--ARTIFACT-END-->
 </body>

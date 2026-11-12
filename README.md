@@ -8,12 +8,25 @@
 - 통계: 암기율, 연속 학습일수, 오늘 학습시간, 최근 7일 그래프
 - 저장과 백업: .json 파일로 내보내기/가져오기
 
-## 두 가지로 쓸 수 있어요
+## 웹앱으로 쓰기 (추천)
 
-| | 앱 (claude.ai 링크) | 컴퓨터에서 `index.html` 열기 |
-|---|---|---|
-| 저장 | 내 계정에 자동 저장, 폰·컴퓨터 동기화 | 그 브라우저에만 저장 |
-| 사진으로 추가 | Claude가 사진을 읽음 (내 Claude 사용량 사용) | Tesseract(OCR)가 읽음, 인터넷 필요 |
+GitHub Pages로 열면 폰 홈 화면에 앱처럼 설치해서 쓸 수 있어요.
 
-앱 링크용 파일은 `index.html`에서 `<!--ARTIFACT-START-->`~`<!--ARTIFACT-HEAD-END-->` 부분과
-`<body>`~`<!--ARTIFACT-END-->` 부분을 이어 붙여 만듭니다.
+- 주소: https://dk26029-cpu.github.io/wordtime/
+- 폰에서 설치: 크롬은 메뉴(⋮) → "홈 화면에 추가" / 사파리는 공유 버튼 → "홈 화면에 추가"
+- 설치 뒤에는 인터넷이 없어도 열려요. 사진으로 추가는 인터넷이 필요해요.
+- 단어장은 그 기기 브라우저에 저장돼요. 다른 기기로 옮길 때는 통계 탭의 백업을 쓰세요.
+- 사진으로 추가는 Tesseract(무료 글자 인식)가 읽어요. 처음 한 번은 인식 데이터를 받느라 오래 걸려요.
+  뜻을 못 읽은 단어는 뜻 칸이 비어서 나오니 직접 적어주세요.
+
+### GitHub Pages 켜는 법 (처음 한 번)
+1. 저장소 Settings → General 맨 아래 Danger Zone → Change visibility → Public
+   (Pages는 무료 계정에서 공개 저장소만 가능해요. 앱 코드만 공개되고 단어장 데이터는 공개되지 않아요.)
+2. Settings → Pages → Build and deployment → Source: Deploy from a branch, Branch: main / (root) → Save
+3. 1~2분 뒤 위 주소로 접속
+
+## 아티팩트 버전
+
+`index.html`에서 `<!--ARTIFACT-START-->`~`<!--ARTIFACT-HEAD-END-->` 부분과
+`<body>`~`<!--ARTIFACT-END-->` 부분을 이어 붙이면 claude.ai 아티팩트용 페이지가 돼요.
+아티팩트로 열면 계정 저장(기기 간 동기화)과 Claude 사진 읽기를 써요.
