@@ -1,6 +1,6 @@
 {
-  "name": "단어타임",
-  "short_name": "단어타임",
+  "name": "단어랜드",
+  "short_name": "단어랜드",
   "description": "혼자 쓰는 영어 단어장: 단어장, 암기, 퀴즈, 학습시간 통계",
   "lang": "ko",
   "start_url": "./",

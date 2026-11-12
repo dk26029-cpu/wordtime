@@ -10,10 +10,10 @@
 <meta name="theme-color" content="#1b2a4a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="단어타임">
+<meta name="apple-mobile-web-app-title" content="단어랜드">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <!--ARTIFACT-START-->
-<title>단어타임</title>
+<title>단어랜드</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
   /* 단어장 노트 느낌: 줄 공책 배경, 남색 잉크, 형광펜 노랑 강조 */
@@ -96,6 +96,9 @@
   #list .m { color: var(--ink-soft); word-break: break-word; }
   .tag { align-self: flex-start; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: var(--mark); color: var(--on-mark); }
   #list .row { display: flex; gap: 8px; }
+  #list .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  #list .tag.done { background: var(--ink); color: var(--paper); }
+  #list .stat { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
   #list .row .btn { padding: 8px 12px; font-size: 14px; }
   #review { display: none; border: 2px solid var(--ink); border-radius: 6px; padding: 12px; margin: 10px 0 16px; background: var(--paper); }
   #review.open { display: block; }
@@ -246,7 +249,7 @@
 </head>
 <body>
   <header>
-    <h1>단어타임</h1>
+    <h1>단어랜드</h1>
     <div class="timer">오늘 <b id="today">00:00:00</b></div>
   </header>
 
@@ -259,12 +262,7 @@
         <input id="inGroup" list="groupList" placeholder="묶음 (예: Lesson 3, 선택)" autocomplete="off">
         <datalist id="groupList"></datalist>
         <button class="btn" id="addBtn">단어 추가</button>
-        <div class="photorow">
-          <button class="btn ghost" id="camBtn">카메라로 찍기</button>
-          <button class="btn ghost" id="photoBtn">앨범에서 고르기</button>
-        </div>
         <input type="file" id="photoInput" accept="image/*" hidden>
-        <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
         <button class="btn ghost" id="pasteBtn">글자 붙여넣기 (렌즈·카메라로 복사한 글자)</button>
         <button class="btn ghost" id="pdfBtn">PDF 단어장 불러오기</button>
         <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
@@ -308,7 +306,7 @@
           <li>폰 카메라의 글자 인식(T 버튼)이나 Google 렌즈로 단어장을 비춰요.</li>
           <li>글자를 모두 선택해서 복사해요.</li>
           <li>아래 칸에 붙여 넣고 "단어 찾기"를 눌러요.</li>
-          <li id="shareTip">안드로이드에서 홈 화면 앱으로 설치했다면, 렌즈에서 공유 → 단어타임으로 바로 보낼 수도 있어요.</li>
+          <li id="shareTip">안드로이드에서 홈 화면 앱으로 설치했다면, 렌즈에서 공유 → 단어랜드으로 바로 보낼 수도 있어요.</li>
         </ol>
         <button class="btn ghost" id="pasteClip">복사한 글자 가져오기</button>
         <textarea id="pasteText" rows="7" placeholder="abandon 버리다&#10;accurate 정확한&#10;look after ~을 돌보다"></textarea>
@@ -366,30 +364,6 @@
     <button data-target="quiz">퀴즈</button>
     <button data-target="stats">통계</button>
   </nav>
-
-  <div id="cam" hidden role="dialog" aria-modal="true" aria-label="카메라로 단어장 찍기">
-    <div class="camview">
-      <video id="camVideo" playsinline muted autoplay></video>
-      <img id="camShot" alt="찍은 사진" hidden>
-      <div class="camguide" id="camGuide"><span>단어와 뜻이 이 칸 안에 다 들어오게 맞춰주세요</span></div>
-      <p class="camerr" id="camErr" role="alert" hidden></p>
-    </div>
-    <div class="cambar">
-      <div id="camLive">
-        <button class="cambtn" id="camClose">닫기</button>
-        <button class="shutter" id="shutter" aria-label="찍기"></button>
-        <span class="camspacer"></span>
-      </div>
-      <div id="camReview" hidden>
-        <button class="cambtn" id="camRetake">다시 찍기</button>
-        <button class="cambtn go" id="camUse">이 사진으로 읽기</button>
-      </div>
-      <div id="camFail" hidden>
-        <button class="cambtn" id="camFailClose">닫기</button>
-        <button class="cambtn go" id="camNative">기본 카메라로 찍기</button>
-      </div>
-    </div>
-  </div>
 
   <div id="sheet" hidden>
     <div class="box" role="dialog" aria-modal="true" aria-labelledby="sheetText">
@@ -450,13 +424,14 @@
     if (btn.dataset.target === "quiz" && !quiz) renderQuizSetup();
     if (btn.dataset.target === "study" && !study) renderStudySetup();
     if (btn.dataset.target === "stats") renderStats();
+    if (btn.dataset.target === "words") renderWords();   // 퀴즈 뒤 정답 기록·"외움" 표시 갱신
   }));
 
   // ---- 저장: 이 기기(로컬 스토리지) + 내 계정(아티팩트로 열었을 때) ----
   // 저장소는 4개로 분리:
   //  words      : [{ id, word, meaning, group }]
   //  wrongNotes : [{ wordId, wrongCount, lastWrongAt }]  ← 단어 내용은 복사하지 않고 id만 가리킴
-  //  progress   : { [wordId]: { correct, wrong, streak } } ← 정답 기록 (암기율 계산용)
+  //  progress   : { [wordId]: { correct, wrong, streak } } ← 정답·오답 횟수 누적 (암기율 계산용)
   //  studyDays  : { "2026-11-08": 초 }                    ← 날짜별 학습시간
   const local = {
     get(key, fallback) {
@@ -473,6 +448,9 @@
   let words = arr(local.get("words", [])).map(normWord).filter(Boolean);
   let wrongNotes = arr(local.get("wrongNotes", []));
   let progress = obj(local.get("progress", {}));
+  // 외운 단어 = 퀴즈에서 한 번 이상 풀었고 정답률이 80% 이상인 단어 (기획서 기능 4의 "정답률 일정 기준 이상")
+  const MEMO_RATE = 0.8;
+  const isMemorized = w => { const p = progress[w.id]; return !!p && p.correct + p.wrong > 0 && p.correct / (p.correct + p.wrong) >= MEMO_RATE; };
   let studyDays = obj(local.get("studyDays", {}));
   try {   // 예전 버전의 날짜별 키(studySeconds:날짜)를 합쳐옴
     for (let i = 0; i < localStorage.length; i++) {
@@ -671,8 +649,14 @@
 
   function viewRow(w) {
     const li = el("li");
-    if (w.group) li.append(el("div", "tag", w.group));
+    const tags = el("div", "tags");
+    if (w.group) tags.append(el("span", "tag", w.group));
+    if (isMemorized(w)) tags.append(el("span", "tag done", "외움"));
+    if (tags.childNodes.length) li.append(tags);
     li.append(el("div", "w", w.word), el("div", "m", w.meaning));
+    const st = progress[w.id];
+    if (st && st.correct + st.wrong > 0)
+      li.append(el("div", "stat", `정답 ${st.correct} · 오답 ${st.wrong} · 정답률 ${Math.round(st.correct / (st.correct + st.wrong) * 100)}%`));
     const row = el("div", "row");
     row.append(
       button("수정", "ghost", () => { editingId = w.id; renderWords(); }),
@@ -730,7 +714,7 @@
   }
   const AI_STATE_TEXT = {
     loading: "사진 읽기를 준비하는 중이에요. 몇 초 뒤에 다시 눌러주세요.",
-    nosample: "이 화면에서는 Claude 사진 읽기를 쓸 수 없어요. 폰 브라우저 주소창에 링크를 직접 열었다면, claude.ai에 로그인된 Claude 앱이나 웹에서 단어타임을 열어주세요.",
+    nosample: "이 화면에서는 Claude 사진 읽기를 쓸 수 없어요. 폰 브라우저 주소창에 링크를 직접 열었다면, claude.ai에 로그인된 Claude 앱이나 웹에서 단어랜드을 열어주세요.",
     noimages: "지금 쓰는 Claude 앱에서는 사진을 보낼 수 없어요. Claude 앱을 최신으로 업데이트하거나, 컴퓨터 웹(claude.ai)에서 열어 시도해주세요.",
   };
 
@@ -983,10 +967,6 @@
     }
   }
 
-  $("photoBtn").addEventListener("click", () => {
-    if (inApp && aiState !== "ready") return showReview(AI_STATE_TEXT[aiState], []);   // 앱 안에서는 Tesseract가 막혀 있음
-    $("photoInput").click();
-  });
   // ---- 글자 붙여넣기: 폰 카메라 글자 인식이나 Google 렌즈로 복사한 글자에서 단어와 뜻을 찾음 ----
   // 한 줄에 "단어 뜻"이 같이 오는 경우와, 단어 목록 다음에 뜻 목록이 따로 오는 경우(표를 단별로 읽음)를 모두 처리
   function cleanPasteLine(raw) {
@@ -1288,110 +1268,7 @@
     if (f) handlePhoto(f);
   };
   $("photoInput").addEventListener("change", onPicked);
-  $("camInput").addEventListener("change", onPicked);
 
-  // ---- 카메라로 찍기: 앱 안에서 카메라를 켜고, 안내 칸 부분만 잘라서 글자 인식으로 넘김 ----
-  // 카메라를 못 켜면(권한 거부, 지원 안 함) 폰의 기본 카메라 앱으로 대신 찍음
-  const camEl = $("cam"), video = $("camVideo");
-  let camStream = null, camBlob = null;
-  function camMode(mode) {
-    $("camLive").hidden = mode !== "live";
-    $("camReview").hidden = mode !== "shot";
-    $("camFail").hidden = mode !== "fail";
-    $("camGuide").hidden = mode !== "live";
-    $("camErr").hidden = mode !== "fail";
-    video.hidden = mode === "shot";
-    $("camShot").hidden = mode !== "shot";
-  }
-  function stopCam() {
-    if (camStream) camStream.getTracks().forEach(t => t.stop());
-    camStream = null; video.srcObject = null;
-  }
-  function clearShot() {
-    const img = $("camShot");
-    if (img.src) URL.revokeObjectURL(img.src);
-    img.removeAttribute("src");
-    camBlob = null;
-  }
-  function closeCam() {
-    stopCam(); clearShot();
-    camEl.hidden = true;
-    $("camBtn").focus();
-  }
-  async function openCam() {
-    // 아티팩트 안에서는 실시간 카메라가 막혀 있고, 오래된 브라우저나 http 주소에서는 카메라를 못 켬 → 기본 카메라 앱
-    if (inApp || !navigator.mediaDevices?.getUserMedia || !window.isSecureContext) return $("camInput").click();
-    clearShot();
-    camEl.hidden = false; camMode("live");
-    try {
-      camStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }
-      });
-      if (camEl.hidden) return stopCam();   // 켜지는 동안 닫음
-      video.srcObject = camStream;
-      await video.play().catch(() => {});
-      const track = camStream.getVideoTracks()[0];
-      try {   // 지원하는 폰이면 계속 초점 맞추기
-        const caps = track.getCapabilities ? track.getCapabilities() : {};
-        if (caps.focusMode && caps.focusMode.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-      } catch (e) {}
-      $("shutter").focus();
-    } catch (e) {
-      console.error(e);
-      stopCam();
-      if (camEl.hidden) return;
-      $("camErr").textContent =
-        e && (e.name === "NotAllowedError" || e.name === "SecurityError") ? "카메라 사용이 허용되지 않았어요. 브라우저 설정에서 이 사이트의 카메라를 허용하거나, 아래 버튼으로 기본 카메라 앱을 써주세요."
-        : e && (e.name === "NotFoundError" || e.name === "OverconstrainedError") ? "이 기기에서 카메라를 찾지 못했어요. 닫고 '앨범에서 고르기'를 써주세요."
-        : e && e.name === "NotReadableError" ? "다른 앱이 카메라를 쓰고 있어요. 그 앱을 닫고 다시 시도하거나, 아래 버튼으로 기본 카메라 앱을 써주세요."
-        : "카메라를 켜지 못했어요. 아래 버튼으로 기본 카메라 앱을 써주세요.";
-      camMode("fail");
-    }
-  }
-  // 화면에 보이는 안내 칸 위치를 실제 카메라 영상의 픽셀 위치로 바꿈 (영상은 화면을 꽉 채우게 잘려서 보임)
-  function guideCrop() {
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const r = video.getBoundingClientRect(), g = $("camGuide").getBoundingClientRect();
-    const s = Math.max(r.width / vw, r.height / vh);
-    const ox = r.left + (r.width - vw * s) / 2, oy = r.top + (r.height - vh * s) / 2;
-    let x = (g.left - ox) / s, y = (g.top - oy) / s, w = g.width / s, h = g.height / s;
-    const px = w * 0.04, py = h * 0.04;   // 가장자리 글자가 잘리지 않게 조금 넓게
-    x = Math.max(0, x - px); y = Math.max(0, y - py);
-    w = Math.min(vw - x, w + 2 * px); h = Math.min(vh - y, h + 2 * py);
-    return { x, y, w, h };
-  }
-  async function snap() {
-    if (!camStream || !video.videoWidth) return;
-    const { x, y, w, h } = guideCrop();
-    const c = document.createElement("canvas");
-    c.width = Math.round(w); c.height = Math.round(h);
-    c.getContext("2d").drawImage(video, x, y, w, h, 0, 0, c.width, c.height);
-    const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.92));
-    if (!blob) return;
-    stopCam();
-    camBlob = blob;
-    $("camShot").src = URL.createObjectURL(blob);
-    camMode("shot");
-    $("camUse").focus();
-  }
-  $("camBtn").addEventListener("click", () => {
-    if (inApp && aiState !== "ready") return showReview(AI_STATE_TEXT[aiState], []);
-    openCam();
-  });
-  $("shutter").addEventListener("click", snap);
-  $("camClose").addEventListener("click", closeCam);
-  $("camFailClose").addEventListener("click", closeCam);
-  $("camRetake").addEventListener("click", openCam);
-  $("camUse").addEventListener("click", () => {
-    const blob = camBlob;
-    closeCam();
-    if (blob) handlePhoto(blob);
-  });
-  $("camNative").addEventListener("click", () => { closeCam(); $("camInput").click(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && !camEl.hidden) closeCam(); });
-  // 다른 앱으로 넘어가면 카메라를 끔 (배터리·개인정보)
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && camStream) closeCam(); });
   $("reviewCancel").addEventListener("click", () => { photoCtl?.abort(); reviewEl.classList.remove("open"); });
   $("reviewSave").addEventListener("click", () => {
     const group = $("inGroup").value.trim();
@@ -1628,7 +1505,7 @@
   const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
   const dayDate = off => { const d = new Date(); d.setDate(d.getDate() - off); return d; };
   const secondsOn = off => studyDays[dayDate(off).toLocaleDateString("sv-SE")] || 0;
-  const hm = s => s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor(s % 3600 / 60)}분` : `${Math.floor(s / 60)}분`;
+  const hm = s => s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor(s % 3600 / 60)}분` : s >= 60 ? `${Math.floor(s / 60)}분` : `${s}초`;
 
   function statCard(k, v, s) {
     const c = el("div", "card");
@@ -1639,13 +1516,13 @@
 
   function renderStats() {
     const box = $("statsBox"); box.replaceChildren();
-    const memorized = words.filter(w => (progress[w.id]?.streak || 0) >= 2).length;   // 연속 2번 정답 = 암기
+    const memorized = words.filter(isMemorized).length;   // 기획서: 정답률 일정 기준(80%) 이상 = 외운 단어
     const rate = words.length ? Math.round(memorized / words.length * 100) : 0;
     let streak = 0, off = secondsOn(0) > 0 ? 0 : 1;
     while (off < 3650 && secondsOn(off) > 0) { streak++; off++; }
     const cards = el("div", "cards");
     cards.append(
-      statCard("암기율", `${rate}%`, `${memorized} / ${words.length}개 (연속 2번 정답)`),
+      statCard("암기율", `${rate}%`, `${memorized} / ${words.length}개 (정답률 ${Math.round(MEMO_RATE * 100)}% 이상)`),
       statCard("연속 학습일수", `${streak}일`, ""),
       statCard("오늘 학습시간", hm(secondsOn(0)), ""),
       statCard("오답노트", `${wrongNotes.length}개`, "")
@@ -1670,10 +1547,10 @@
 
   // ---- 백업: 내보내기 / 가져오기 ----
   function makeBackup() {
-    return { app: "단어타임", version: 2, exportedAt: new Date().toISOString(), words, wrongNotes, progress, studyDays };
+    return { app: "단어랜드", version: 2, exportedAt: new Date().toISOString(), words, wrongNotes, progress, studyDays };
   }
   function applyBackup(data) {
-    if (!data || data.app !== "단어타임" || !Array.isArray(data.words)) throw new Error("형식");
+    if (!data || !["단어랜드", "단어타임"].includes(data.app) || !Array.isArray(data.words)) throw new Error("형식");
     words = data.words.map(normWord).filter(Boolean);
     wrongNotes = arr(data.wrongNotes);
     progress = obj(data.progress);
@@ -1690,7 +1567,7 @@
 
   $("exportBtn").addEventListener("click", async () => {
     const text = JSON.stringify(makeBackup(), null, 2);
-    const filename = `wordtime-backup-${today()}.json`;   // 한글 파일 이름은 일부 브라우저에서 "download"로 바뀌어 저장됨
+    const filename = `wordland-backup-${today()}.json`;   // 한글 파일 이름은 일부 브라우저에서 "download"로 바뀌어 저장됨
     if (window.claude && typeof window.claude.use === "function") {   // 아티팩트: 저장 확인 창을 거쳐 내려받기
       const dl = await claude.use("downloads");
       if (!dl) return bmsg("이 화면에서는 파일로 저장할 수 없어요. 컴퓨터에서 같은 링크를 열어 다시 시도해주세요.");
@@ -1710,8 +1587,8 @@
     const f = e.target.files[0]; e.target.value = "";
     if (!f) return;
     let data;
-    try { data = JSON.parse(await f.text()); if (!data || data.app !== "단어타임" || !Array.isArray(data.words)) throw 0; }
-    catch (err) { return bmsg("이 파일은 단어타임 백업 파일이 아니에요. 내보내기로 만든 .json 파일을 골라주세요."); }
+    try { data = JSON.parse(await f.text()); if (!data || !["단어랜드", "단어타임"].includes(data.app) || !Array.isArray(data.words)) throw 0; }
+    catch (err) { return bmsg("이 파일은 단어랜드 백업 파일이 아니에요. 내보내기로 만든 .json 파일을 골라주세요."); }
     const ok = await askConfirm(`백업 파일의 단어 ${data.words.length}개로 지금 단어장(${words.length}개)을 바꿀까요?\n학습시간은 합쳐져요.`, "바꾸기", "취소");
     if (!ok) return bmsg("가져오기를 취소했어요.");
     applyBackup(data);
@@ -1743,7 +1620,7 @@
   if (!window.claude && (location.protocol === "https:" || location.hostname === "localhost")) {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(e => console.error(e));
     navigator.storage?.persist?.().catch(() => {});
-    // 다른 앱에서 "공유 → 단어타임"으로 보낸 글자 받기 (안드로이드에 설치한 웹앱)
+    // 다른 앱에서 "공유 → 단어랜드"으로 보낸 글자 받기 (안드로이드에 설치한 웹앱)
     const shared = new URLSearchParams(location.search).get("text");
     if (shared && shared.trim()) {
       history.replaceState(null, "", location.pathname);
