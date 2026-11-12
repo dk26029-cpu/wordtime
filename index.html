@@ -174,6 +174,13 @@
   #sheet .row .btn { flex: 1; }
   .photorow { display: flex; gap: 8px; }
   .photorow .btn { flex: 1; }
+  #pastePanel { border: 2px solid var(--ink); border-radius: 6px; padding: 12px; margin: 10px 0 16px; background: var(--paper); display: flex; flex-direction: column; gap: 10px; }
+  #pastePanel h3 { font-size: 16px; }
+  .howto { margin: 0; padding-left: 20px; font-size: 14px; color: var(--ink-soft); line-height: 1.6; }
+  #pasteText { font: inherit; font-size: 16px; padding: 12px; width: 100%; min-height: 150px; resize: vertical; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper); color: var(--ink); }
+  #pasteText:focus-visible { outline: 3px solid var(--mark); outline-offset: 1px; }
+  #pastePanel .row { display: flex; gap: 8px; }
+  #pastePanel .row .btn { flex: 1; }
   /* 카메라 화면: 밝은/어두운 모드와 상관없이 항상 어두운 뷰파인더 */
   #cam {
     position: fixed; inset: 0; z-index: 30; background: var(--cam-bg); color: var(--cam-fg);
@@ -240,6 +247,23 @@
         </div>
         <input type="file" id="photoInput" accept="image/*" hidden>
         <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
+        <button class="btn ghost" id="pasteBtn">글자 붙여넣기 (렌즈·카메라로 복사한 글자)</button>
+      </div>
+      <div id="pastePanel" hidden>
+        <h3>글자 붙여넣기</h3>
+        <ol class="howto">
+          <li>폰 카메라의 글자 인식(T 버튼)이나 Google 렌즈로 단어장을 비춰요.</li>
+          <li>글자를 모두 선택해서 복사해요.</li>
+          <li>아래 칸에 붙여 넣고 "단어 찾기"를 눌러요.</li>
+          <li id="shareTip">안드로이드에서 홈 화면 앱으로 설치했다면, 렌즈에서 공유 → 단어타임으로 바로 보낼 수도 있어요.</li>
+        </ol>
+        <button class="btn ghost" id="pasteClip">복사한 글자 가져오기</button>
+        <textarea id="pasteText" rows="7" placeholder="abandon 버리다&#10;accurate 정확한&#10;look after ~을 돌보다"></textarea>
+        <p class="note" id="pasteNote" role="status"></p>
+        <div class="row">
+          <button class="btn" id="pasteGo">단어 찾기</button>
+          <button class="btn ghost" id="pasteClose">닫기</button>
+        </div>
       </div>
       <div id="review">
         <h3>인식 결과 확인</h3>
@@ -786,6 +810,94 @@
     if (inApp && aiState !== "ready") return showReview(AI_STATE_TEXT[aiState], []);   // 앱 안에서는 Tesseract가 막혀 있음
     $("photoInput").click();
   });
+  // ---- 글자 붙여넣기: 폰 카메라 글자 인식이나 Google 렌즈로 복사한 글자에서 단어와 뜻을 찾음 ----
+  // 한 줄에 "단어 뜻"이 같이 오는 경우와, 단어 목록 다음에 뜻 목록이 따로 오는 경우(표를 단별로 읽음)를 모두 처리
+  function cleanPasteLine(raw) {
+    return raw.replace(/\s+/g, " ")
+      .replace(/\[[^\]]*\]|\/[^/]{1,30}\//g, " ")                         // 발음기호 [..] /../
+      .replace(/[ⓝⓥⓐⓓⓟⓒ□■☐✓✔•·▶▷]|[①-⑳]/g, " ")                       // 동그라미 기호, 체크칸, 글머리표
+      .replace(/(^|\s)(n|v|vt|vi|a|adj|ad|adv|prep|conj|pron|int|phr|aux)\.(?=\s|$)/gi, " ")   // 품사 n. v. adj.
+      .replace(/^\s*(no\.?\s*)?\d+\s*[.)\]:-]?\s+/i, "")                 // 앞 번호 1. 2)
+      .replace(/\s+/g, " ").trim();
+  }
+  const wordCount = s => s.split(" ").filter(Boolean).length;
+  const looksSentence = en => wordCount(en) > 6 || /[.?!]$/.test(en);
+  function classifyPasteLine(raw) {
+    const line = cleanPasteLine(raw);
+    if (!line || /^(lesson|unit|chapter|day|part|step|week)\s*\d+\b/i.test(line)) return null;
+    const hasK = /[가-힣]/.test(line), hasE = /[A-Za-z]{2,}|^[A-Za-z]$/.test(line);
+    if (hasE && hasK) {
+      const k = line.search(/[~(（]*[가-힣]/);
+      const en = line.slice(0, k).replace(/[\s~:=\-–—,;|]+$/, "").trim();
+      const ko = line.slice(k).replace(/^(명|동|형|부|전|접|대|감)\s+/, "").trim();
+      if (!/[A-Za-z]/.test(en)) return null;                  // 한글이 먼저 오는 줄 (예문 해석 등)
+      if (looksSentence(en)) return null;                     // 예문
+      return { t: "P", word: en, meaning: ko };
+    }
+    if (hasE) return looksSentence(line) ? null : { t: "W", word: line.replace(/[\s:=\-–—,;|]+$/, "") };
+    if (hasK) {
+      const ko = line.replace(/^(명|동|형|부|전|접|대|감)\s+/, "").trim();
+      if (ko.length > 25 || /[다요]\.$/.test(ko)) return null; // 해석 문장
+      return { t: "M", meaning: ko };
+    }
+    return null;
+  }
+  function parsePasted(text) {
+    const toks = text.split(/\r?\n/).map(classifyPasteLine).filter(Boolean);
+    const out = [];
+    // 같은 종류끼리 묶음(run): 단어 묶음 다음에 뜻 묶음이 오면 순서대로 짝지음 (W M W M, W W W M M M 둘 다)
+    const runs = [];
+    for (const t of toks) {
+      const last = runs[runs.length - 1];
+      if (last && last.t === t.t && t.t !== "P") last.items.push(t); else runs.push({ t: t.t, items: [t] });
+    }
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i];
+      if (r.t === "P") { out.push({ word: r.items[0].word, meaning: r.items[0].meaning }); continue; }
+      if (r.t === "W") {
+        const next = runs[i + 1];
+        const ms = next && next.t === "M" ? next.items : [];
+        r.items.forEach((w, j) => out.push(ms[j] ? { word: w.word, meaning: ms[j].meaning } : { word: w.word, meaning: "", unsure: true }));
+        if (ms.length) i++;
+      }
+      // 앞에 단어가 없는 뜻 묶음은 버림
+    }
+    const seen = new Set();
+    return out.filter(x => x.word && !seen.has(x.word.toLowerCase()) && seen.add(x.word.toLowerCase()));
+  }
+
+  const pasteNote = t => $("pasteNote").textContent = t;
+  function openPaste(prefill) {
+    $("pastePanel").hidden = false;
+    if (prefill != null) $("pasteText").value = prefill;
+    pasteNote("");
+    $("pasteText").focus();
+  }
+  function findFromPaste() {
+    const text = $("pasteText").value;
+    if (!text.trim()) return pasteNote("붙여 넣은 글자가 없어요. 칸을 길게 눌러 붙여넣기를 해주세요.");
+    const items = parsePasted(text);
+    if (!items.length) return pasteNote("단어와 뜻을 찾지 못했어요. 영어 단어와 한글 뜻이 함께 복사됐는지 확인해주세요.");
+    const unsure = items.filter(x => x.unsure).length;
+    $("pastePanel").hidden = true;
+    showReview(`${items.length}개를 찾았어요.` + (unsure ? ` 그중 ${unsure}개는 뜻이 비어 있어요.` : "") + " 고칠 건 고치고, 저장할 단어만 체크하세요.", items);
+    reviewEl.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  $("pasteBtn").addEventListener("click", () => openPaste());
+  $("pasteClose").addEventListener("click", () => { $("pastePanel").hidden = true; });
+  $("pasteGo").addEventListener("click", findFromPaste);
+  $("pasteClip").addEventListener("click", async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (!t || !t.trim()) return pasteNote("복사한 글자가 없어요. 렌즈나 카메라에서 글자를 먼저 복사해주세요.");
+      $("pasteText").value = t;
+      findFromPaste();
+    } catch (e) {
+      pasteNote("복사한 글자를 가져오지 못했어요. 아래 칸을 길게 눌러 '붙여넣기'를 해주세요.");
+      $("pasteText").focus();
+    }
+  });
+
   const onPicked = e => {
     const f = e.target.files[0];
     e.target.value = "";
@@ -909,6 +1021,7 @@
       else { words.unshift({ id: Date.now() + added, word, meaning, group }); added++; }
     }
     reviewEl.classList.remove("open");
+    if (added || changed) $("pasteText").value = "";
     msg(`${added}개 추가, ${changed}개 뜻 변경했어요.` + (group ? ` (묶음: ${group})` : ""));
     save();
   });
@@ -1246,6 +1359,15 @@
   if (!window.claude && (location.protocol === "https:" || location.hostname === "localhost")) {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(e => console.error(e));
     navigator.storage?.persist?.().catch(() => {});
+    // 다른 앱에서 "공유 → 단어타임"으로 보낸 글자 받기 (안드로이드에 설치한 웹앱)
+    const shared = new URLSearchParams(location.search).get("text");
+    if (shared && shared.trim()) {
+      history.replaceState(null, "", location.pathname);
+      openPaste(shared);
+      findFromPaste();
+    }
+  } else {
+    $("shareTip").hidden = true;   // 아티팩트나 파일로 열었을 때는 공유 받기가 안 됨
   }
 </script>
 <!--ARTIFACT-END-->
