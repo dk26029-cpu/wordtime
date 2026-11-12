@@ -174,8 +174,26 @@
   #sheet .row .btn { flex: 1; }
   .photorow { display: flex; gap: 8px; }
   .photorow .btn { flex: 1; }
-  #pastePanel { border: 2px solid var(--ink); border-radius: 6px; padding: 12px; margin: 10px 0 16px; background: var(--paper); display: flex; flex-direction: column; gap: 10px; }
-  #pastePanel h3 { font-size: 16px; }
+  #pastePanel, #pdfPanel { border: 2px solid var(--ink); border-radius: 6px; padding: 12px; margin: 10px 0 16px; background: var(--paper); display: flex; flex-direction: column; gap: 10px; }
+  #pastePanel h3, #pdfPanel h3 { font-size: 16px; }
+  #pdfPanel .row { display: flex; gap: 8px; }
+  #pdfPanel .row .btn { flex: 1; }
+  #pdfOptions { display: flex; flex-direction: column; gap: 4px; }
+  #pdfOptions[hidden] { display: none; }
+  .pdfprev { list-style: none; padding: 0; margin: 0 0 8px; font-size: 14px; border-top: 1px solid var(--line); }
+  .pdfprev li { padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .pdfprev .n { color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 3.2em; }
+  .pdfprev b { flex: none; }
+  .pdfprev span:last-child { color: var(--ink-soft); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pdfprev .gap { color: var(--ink-soft); justify-content: center; }
+  .rangeRow { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+  .rangeRow input { flex: 1; min-width: 0; }
+  .check { display: flex; gap: 10px; align-items: center; font-size: 14px; color: var(--ink); margin: 4px 0; }
+  .check input { width: 20px; height: 20px; padding: 0; flex: none; }
+  .listbar { display: flex; gap: 8px; margin: 4px 0 10px; }
+  .listbar select { flex: 1; min-width: 0; }
+  .listbar .btn { flex: none; padding: 8px 12px; font-size: 14px; }
+  #moreWords { width: 100%; margin-top: 10px; }
   .howto { margin: 0; padding-left: 20px; font-size: 14px; color: var(--ink-soft); line-height: 1.6; }
   #pasteText { font: inherit; font-size: 16px; padding: 12px; width: 100%; min-height: 150px; resize: vertical; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper); color: var(--ink); }
   #pasteText:focus-visible { outline: 3px solid var(--mark); outline-offset: 1px; }
@@ -248,6 +266,41 @@
         <input type="file" id="photoInput" accept="image/*" hidden>
         <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
         <button class="btn ghost" id="pasteBtn">글자 붙여넣기 (렌즈·카메라로 복사한 글자)</button>
+        <button class="btn ghost" id="pdfBtn">PDF 단어장 불러오기</button>
+        <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
+      </div>
+      <div id="pdfPanel" hidden>
+        <h3>PDF 단어장 불러오기</h3>
+        <p class="note" id="pdfStatus" role="status"></p>
+        <div id="pdfOptions" hidden>
+          <ul class="pdfprev" id="pdfPreview"></ul>
+          <div class="field">가져올 범위 (찾은 순서)
+            <div class="rangeRow">
+              <input id="pdfFrom" type="number" inputmode="numeric" min="1" aria-label="시작 번호">
+              <span>~</span>
+              <input id="pdfTo" type="number" inputmode="numeric" min="1" aria-label="끝 번호">
+              <span>번</span>
+            </div>
+          </div>
+          <label class="field">묶음 나누기
+            <select id="pdfSplit">
+              <option value="0">나누지 않고 한 묶음으로</option>
+              <option value="20">20개씩</option>
+              <option value="30">30개씩</option>
+              <option value="50">50개씩</option>
+              <option value="100">100개씩</option>
+            </select>
+          </label>
+          <label class="field">묶음 이름
+            <input id="pdfName" autocomplete="off" placeholder="예: Day">
+          </label>
+          <label class="check"><input type="checkbox" id="pdfOverwrite"> 이미 있는 단어는 뜻을 PDF 것으로 바꾸기</label>
+          <p class="note" id="pdfPlan"></p>
+        </div>
+        <div class="row">
+          <button class="btn" id="pdfSave" hidden>단어장에 저장</button>
+          <button class="btn ghost" id="pdfClose">닫기</button>
+        </div>
       </div>
       <div id="pastePanel" hidden>
         <h3>글자 붙여넣기</h3>
@@ -275,7 +328,12 @@
         </div>
       </div>
       <p id="msg" role="status"></p>
+      <div class="listbar" id="listBar" hidden>
+        <select id="listFilter" aria-label="볼 묶음"></select>
+        <button class="btn ghost" id="delGroup" hidden>이 묶음 삭제</button>
+      </div>
       <ul id="list"></ul>
+      <button class="btn ghost" id="moreWords" hidden>더 보기</button>
       <p class="empty" id="emptyWords">아직 단어가 없어요. 위에서 단어와 뜻을 입력해 추가해보세요.</p>
     </section>
     <section class="screen" id="screen-study">
@@ -559,7 +617,7 @@
       if (group) dup.group = group;
       msg(`'${dup.word}'의 뜻을 바꿨어요.`);
     } else {
-      words.unshift({ id: Date.now(), word, meaning, group });
+      words.unshift({ id: newId(), word, meaning, group });
       msg(`'${word}'를 추가했어요.`);
     }
     $("inWord").value = ""; $("inMeaning").value = "";
@@ -567,15 +625,49 @@
     save();
   }
 
+  // 새 단어 id: 지금 시각과 기존 가장 큰 id보다 크게 (한꺼번에 많이 넣어도 겹치지 않음)
+  function newId() {
+    let max = 0;
+    for (const w of words) if (+w.id > max) max = +w.id;
+    return Math.max(Date.now(), max + 1);
+  }
+  // 묶음 이름을 Day 1, Day 2, … Day 10 처럼 숫자 순서로 정렬
+  const groupNames = () => [...new Set(words.map(w => w.group).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+
+  // 단어 목록: 묶음별로 보기, 100개씩 더 보기
+  let listFilter = "", listLimit = 100;
   function renderWords() {
     const list = $("list");
     list.replaceChildren();
     $("count").textContent = words.length ? `${words.length}개` : "";
     $("emptyWords").hidden = words.length > 0;
-    $("groupList").replaceChildren(...[...new Set(words.map(w => w.group).filter(Boolean))]
-      .map(g => { const o = document.createElement("option"); o.value = g; return o; }));
-    for (const w of words) list.appendChild(w.id === editingId ? editRow(w) : viewRow(w));
+    const groups = groupNames();
+    $("groupList").replaceChildren(...groups.map(g => { const o = document.createElement("option"); o.value = g; return o; }));
+    if (listFilter && !groups.includes(listFilter)) listFilter = "";
+    const counts = {};
+    for (const w of words) if (w.group) counts[w.group] = (counts[w.group] || 0) + 1;
+    const opt = (v, t) => { const o = el("option", "", t); o.value = v; return o; };
+    $("listFilter").replaceChildren(opt("", `전체 보기 (${words.length}개)`), ...groups.map(g => opt(g, `${g} (${counts[g]}개)`)));
+    $("listFilter").value = listFilter;
+    $("listBar").hidden = groups.length === 0;
+    $("delGroup").hidden = !listFilter;
+    const shown = listFilter ? words.filter(w => w.group === listFilter) : words;
+    for (const w of shown.slice(0, listLimit)) list.appendChild(w.id === editingId ? editRow(w) : viewRow(w));
+    const rest = shown.length - listLimit;
+    $("moreWords").hidden = rest <= 0;
+    $("moreWords").textContent = `더 보기 (${rest}개 남음)`;
   }
+  $("listFilter").addEventListener("change", e => { listFilter = e.target.value; listLimit = 100; renderWords(); });
+  $("moreWords").addEventListener("click", () => { listLimit += 100; renderWords(); });
+  $("delGroup").addEventListener("click", async () => {
+    const g = listFilter, n = words.filter(w => w.group === g).length;
+    if (!g || !await askConfirm(`'${g}' 묶음의 단어 ${n}개를 모두 삭제할까요?\n오답 기록도 함께 지워져요.`, "모두 삭제", "취소")) return;
+    words = words.filter(w => w.group !== g);
+    listFilter = "";
+    msg(`'${g}' 묶음의 단어 ${n}개를 삭제했어요.`);
+    save();
+  });
 
   function viewRow(w) {
     const li = el("li");
@@ -898,6 +990,213 @@
     }
   });
 
+  // ---- PDF 단어장 불러오기: PDF 안의 글자를 그대로 꺼내서(사진 인식이 아님) 단어와 뜻을 찾음 ----
+  // 표 모양 PDF는 칸 위치(x좌표)로 "번호 | 단어 | 뜻 | 별점"을 나눔. 두 단으로 된 페이지도 왼쪽부터 순서대로 짝지음.
+  // 웹앱에서는 앱에 들어 있는 pdf.js(vendor/pdfjs)를 써서 한 번 쓴 뒤로는 인터넷 없이도 됨
+  const PDFJS_BASE = window.claude ? "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/" : "vendor/pdfjs/";
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = PDFJS_BASE + "pdf.min.js";
+      s.onload = () => { pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + "pdf.worker.min.js"; resolve(); };
+      s.onerror = () => reject(new Error("load"));
+      document.head.appendChild(s);
+    });
+  }
+
+  // 한 쪽의 글자 조각들을 줄로 묶고, 줄 안에서는 간격이 넓은 곳을 칸 경계로 봄
+  async function extractPdfLines(file, onProgress) {
+    const data = new Uint8Array(await file.arrayBuffer());
+    const doc = await pdfjsLib.getDocument({ data, cMapUrl: PDFJS_BASE + "cmaps/", cMapPacked: true }).promise;
+    const lines = [];
+    try {
+      for (let p = 1; p <= doc.numPages; p++) {
+        onProgress(p, doc.numPages);
+        const page = await doc.getPage(p);
+        const tc = await page.getTextContent();
+        const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({
+          s: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: it.height || Math.abs(it.transform[3]) || 10
+        }));
+        items.sort((a, b) => b.y - a.y || a.x - b.x);
+        const rows = [];
+        for (const it of items) {
+          const r = rows.find(r => Math.abs(r.y - it.y) < Math.max(2, it.h * 0.4));
+          if (r) r.items.push(it); else rows.push({ y: it.y, items: [it] });
+        }
+        rows.sort((a, b) => b.y - a.y);
+        for (const r of rows) {
+          r.items.sort((a, b) => a.x - b.x);
+          const cells = [];
+          for (const it of r.items) {
+            const c = cells[cells.length - 1];
+            const gap = c ? it.x - (c.x + c.w) : Infinity;
+            if (c && gap < Math.max(6, it.h * 0.9)) { c.text += (gap > it.h * 0.15 ? " " : "") + it.s; c.w = it.x + it.w - c.x; }
+            else cells.push({ text: it.s, x: it.x, w: it.w });
+          }
+          lines.push(cells.map(c => ({ text: c.text.replace(/\s+/g, " ").trim(), x: c.x })).filter(c => c.text));
+        }
+        page.cleanup();
+      }
+    } finally { doc.destroy(); }
+    return lines;
+  }
+
+  const POS_ONLY = /^(n|v|vt|vi|a|adj|adv|ad|prep|conj|pron|int|aux)\.?$/i;
+  const isWordCell = t => /[A-Za-z]/.test(t) && !/https?:|www\.|@|\.(com|net|org|kr|io)\b|\d/i.test(t)
+    && wordCount(t) <= 6 && !/[.?!]$/.test(t);
+  const cleanMeaning = t => t.replace(/[ⓝⓥⓐⓓⓟⓒ]/g, " ").replace(/^(명|동|형|부|전|접|대|감)\s+/, "").replace(/\s+/g, " ").trim();
+  function parsePdfLines(lines) {
+    const out = [];
+    let prev = null;                                   // 바로 윗줄의 마지막 단어 (뜻이 다음 줄로 넘어간 경우)
+    for (const cells of lines) {
+      let cur = null, lineLast = null, hasLatin = false;
+      for (const c of cells) {
+        let t = c.text.replace(/[★☆✩✭✮]+/g, " ")
+          .replace(/\[[^\]가-힣]*\]|\/[^/가-힣]{1,30}\//g, " ")                 // 발음기호 (한글이 든 [에] 같은 건 남김)
+          .replace(/(^|\s)(n|v|vt|vi|a|adj|ad|adv|prep|conj|pron|int|phr|aux)\.(?=\s|$)/gi, " ")
+          .replace(/\s+/g, " ").trim();
+        if (!t || /^[\d\s.,/~()\-:]+$/.test(t)) continue;                       // 번호, 쪽 번호, 날짜
+        const hasK = /[가-힣]/.test(t), hasE = /[A-Za-z]/.test(t);
+        if (hasE) hasLatin = true;
+        if (hasE && !hasK) {
+          if (cur && !cur.meaning && POS_ONLY.test(t)) continue;                 // 점 없는 품사 표시
+          if (isWordCell(t)) { cur = { word: t, meaning: "", x: c.x, mx: null }; out.push(cur); lineLast = cur; }
+          else cur = null;
+          continue;
+        }
+        if (!hasK) continue;
+        // 한글이 든 칸: 앞 단어의 뜻이거나, "단어 뜻"이 한 칸에 붙어 있는 경우
+        if (cur && !cur.meaning && c.x > cur.x) {
+          cur.meaning = cleanMeaning(t); cur.mx = c.x;
+        } else if (/^[A-Za-z]/.test(t)) {
+          const r = classifyPasteLine(t);
+          if (r && r.t === "P") { cur = { word: r.word, meaning: cleanMeaning(r.meaning), x: c.x, mx: c.x }; out.push(cur); lineLast = cur; }
+        } else if (cur && c.x > cur.x) {
+          cur.meaning += ", " + cleanMeaning(t);                                  // 뜻이 여러 칸으로 나뉜 경우
+        } else if (!cur && !hasLatin && prev && prev.mx != null && Math.abs(c.x - prev.mx) < 12) {
+          prev.meaning += " " + cleanMeaning(t);                                  // 윗줄 뜻이 이어지는 줄
+        }
+      }
+      prev = lineLast || (cells.length ? null : prev);
+    }
+    // 같은 단어가 두 번 나오면(예: like 동사·전치사) 하나로 합치고 뜻을 " / "로 이어 붙임
+    const byWord = new Map(), list = [];
+    let merged = 0;
+    for (const e of out) {
+      const word = e.word.replace(/[\s~:=\-–—,;|]+$/, "").trim(), meaning = e.meaning.trim();
+      if (!word) continue;
+      const same = byWord.get(word.toLowerCase());
+      if (same) {
+        merged++;
+        if (meaning && !same.meaning.split(" / ").includes(meaning)) same.meaning = same.meaning ? `${same.meaning} / ${meaning}` : meaning;
+        continue;
+      }
+      const item = { word, meaning };
+      byWord.set(word.toLowerCase(), item); list.push(item);
+    }
+    list.merged = merged;
+    return list;
+  }
+
+  let pdfEntries = [], pdfFileName = "", pdfNameTouched = false;
+  const pdfStatus = t => $("pdfStatus").textContent = t;
+  function pdfSettings() {
+    const n = pdfEntries.length;
+    let from = Math.round(+$("pdfFrom").value) || 1, to = Math.round(+$("pdfTo").value) || n;
+    const ok = from >= 1 && to <= n && from <= to;
+    const size = +$("pdfSplit").value;
+    const name = $("pdfName").value.trim() || (size ? "Day" : pdfFileName || "PDF");
+    return { from, to, ok, size, name, overwrite: $("pdfOverwrite").checked };
+  }
+  function updatePdfPlan() {
+    const s = pdfSettings();
+    $("pdfSave").disabled = !s.ok;
+    if (!s.ok) return $("pdfPlan").textContent = `범위를 1~${pdfEntries.length} 사이로 다시 적어주세요.`;
+    const pick = pdfEntries.slice(s.from - 1, s.to).filter(e => e.meaning);
+    const dups = pick.filter(e => findWord(e.word)).length;
+    const kFirst = Math.floor((s.from - 1) / (s.size || 1)) + 1, kLast = Math.floor((s.to - 1) / (s.size || 1)) + 1;
+    $("pdfPlan").textContent = (s.size
+      ? `${s.from}~${s.to}번 ${pick.length}개를 ${s.size}개씩 나눠 '${s.name} ${kFirst}'` + (kLast > kFirst ? `부터 '${s.name} ${kLast}'까지 ${kLast - kFirst + 1}개 묶음으로` : " 묶음으로") + " 저장해요."
+      : `${s.from}~${s.to}번 ${pick.length}개를 '${s.name}' 묶음으로 저장해요.`)
+      + (dups ? ` 이미 단어장에 있는 ${dups}개는 ${s.overwrite ? "뜻을 PDF 것으로 바꿔요" : "건너뛰어요"}.` : "");
+  }
+  function showPdfOptions() {
+    const n = pdfEntries.length, noMeaning = pdfEntries.filter(e => !e.meaning).length;
+    pdfStatus(`단어 ${n}개를 찾았어요.` + (pdfEntries.merged ? ` 두 번 나온 단어 ${pdfEntries.merged}개는 뜻을 합쳤어요.` : "") + (noMeaning ? ` 그중 ${noMeaning}개는 뜻을 못 찾아서 빼고 저장해요.` : "") + " 아래 미리보기가 맞는지 확인하세요.");
+    const prevEl = $("pdfPreview"); prevEl.replaceChildren();
+    const row = i => { const li = el("li"); li.append(el("span", "n", `${i + 1}.`), el("b", "", pdfEntries[i].word), el("span", "", pdfEntries[i].meaning || "(뜻 없음)")); return li; };
+    const head = Math.min(n, 5);
+    for (let i = 0; i < head; i++) prevEl.append(row(i));
+    if (n > 7) prevEl.append(el("li", "gap", `… ${n - 7}개 더 …`));
+    for (let i = Math.max(head, n - 2); i < n; i++) prevEl.append(row(i));
+    $("pdfFrom").value = 1; $("pdfTo").value = n;
+    $("pdfFrom").max = $("pdfTo").max = n;
+    $("pdfSplit").value = n > 60 ? "50" : "0";
+    pdfNameTouched = false;
+    $("pdfName").value = n > 60 ? "Day" : pdfFileName;
+    $("pdfOverwrite").checked = false;
+    $("pdfOptions").hidden = false; $("pdfSave").hidden = false;
+    updatePdfPlan();
+  }
+  async function importPdf(file) {
+    pdfEntries = [];
+    pdfFileName = file.name.replace(/\.pdf$/i, "").replace(/[_\s]+/g, " ").trim().slice(0, 20);
+    $("pdfPanel").hidden = false; $("pdfOptions").hidden = true; $("pdfSave").hidden = true;
+    pdfStatus("PDF를 여는 중이에요...");
+    $("pdfPanel").scrollIntoView({ block: "start", behavior: "smooth" });
+    try {
+      await loadPdfJs();
+      const lines = await extractPdfLines(file, (p, n) => pdfStatus(`PDF를 읽는 중이에요... ${p} / ${n}쪽`));
+      if (!lines.some(l => l.length)) return pdfStatus("이 PDF에서 글자를 찾지 못했어요. 스캔한 그림으로 된 PDF라서 그래요. 화면을 캡처해서 '글자 붙여넣기'나 '앨범에서 고르기'를 써주세요.");
+      pdfEntries = parsePdfLines(lines);
+      if (!pdfEntries.length) return pdfStatus("영어 단어와 한글 뜻을 찾지 못했어요. 단어와 뜻이 함께 있는 PDF인지 확인해주세요.");
+      showPdfOptions();
+    } catch (e) {
+      console.error(e);
+      pdfStatus(e && e.name === "PasswordException" ? "비밀번호가 걸린 PDF는 열 수 없어요."
+        : e && e.message === "load" ? "PDF 읽는 도구를 불러오지 못했어요. 처음 한 번은 인터넷이 필요해요. 연결을 확인하고 다시 해주세요."
+        : "PDF를 읽지 못했어요. 파일이 깨졌을 수 있어요. 다른 파일로 해주세요.");
+    }
+  }
+  $("pdfBtn").addEventListener("click", () => $("pdfInput").click());
+  $("pdfInput").addEventListener("change", e => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (f) importPdf(f);
+  });
+  $("pdfClose").addEventListener("click", () => { $("pdfPanel").hidden = true; });
+  ["pdfFrom", "pdfTo", "pdfOverwrite"].forEach(id => $(id).addEventListener("input", updatePdfPlan));
+  $("pdfName").addEventListener("input", () => { pdfNameTouched = true; updatePdfPlan(); });
+  $("pdfSplit").addEventListener("change", () => {
+    if (!pdfNameTouched) $("pdfName").value = +$("pdfSplit").value ? "Day" : pdfFileName;
+    updatePdfPlan();
+  });
+  $("pdfSave").addEventListener("click", () => {
+    const s = pdfSettings();
+    if (!s.ok) return;
+    let added = 0, changed = 0, skipped = 0, id = newId();
+    const used = new Set();
+    // words는 최신이 앞이므로, PDF 순서대로 앞에 끼워 넣으면 "등록한 순서" 암기에서 PDF 순서대로 나옴
+    for (let i = s.from - 1; i < s.to; i++) {
+      const e = pdfEntries[i];
+      if (!e.meaning) continue;
+      const group = s.size ? `${s.name} ${Math.floor(i / s.size) + 1}` : s.name;
+      const dup = findWord(e.word);
+      if (dup) {
+        if (s.overwrite) { dup.meaning = e.meaning; dup.group = group; changed++; used.add(group); } else skipped++;
+        continue;
+      }
+      words.unshift({ id: id++, word: e.word, meaning: e.meaning, group });
+      added++; used.add(group);
+    }
+    $("pdfPanel").hidden = true;
+    listFilter = ""; listLimit = 100;
+    msg(`PDF에서 ${added}개를 추가했어요` + (used.size > 1 ? ` (묶음 ${used.size}개)` : used.size ? ` (묶음: ${[...used][0]})` : "") + "."
+      + (changed ? ` ${changed}개는 뜻을 바꿨어요.` : "") + (skipped ? ` 이미 있던 ${skipped}개는 건너뛰었어요.` : ""));
+    save();
+  });
+
   const onPicked = e => {
     const f = e.target.files[0];
     e.target.value = "";
@@ -1018,7 +1317,7 @@
       if (!word || !meaning) continue;
       const dup = findWord(word);
       if (dup) { dup.meaning = meaning; if (group) dup.group = group; changed++; }
-      else { words.unshift({ id: Date.now() + added, word, meaning, group }); added++; }
+      else { words.unshift({ id: newId(), word, meaning, group }); added++; }
     }
     reviewEl.classList.remove("open");
     if (added || changed) $("pasteText").value = "";
@@ -1040,7 +1339,7 @@
     return s;
   }
   function rangeSelect(id) {
-    const groups = [...new Set(words.map(w => w.group).filter(Boolean))];
+    const groups = groupNames();
     return select(id, [["all", `전체 (${words.length}개)`], ["wrong", `오답노트 (${words.filter(isWrongNoted).length}개)`],
       ...groups.map(g => ["g:" + g, `${g} (${words.filter(w => w.group === g).length}개)`])]);
   }
