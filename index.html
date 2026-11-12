@@ -517,16 +517,26 @@
 
   // ---- 사진으로 추가: 사진 -> 글자 인식 -> 확인/수정 -> 저장 ----
   // 앱(아티팩트)으로 열면 Claude가 사진을 읽고, 컴퓨터에서 파일로 열면 Tesseract(OCR)가 읽음
-  let aiSample = null, photoCtl = null;
+  // inApp: 앱(아티팩트) 화면인지. aiState: 앱에서 사진 읽기 준비 상태 (버튼은 숨기지 않고, 못 쓰면 이유를 알려줌)
+  let inApp = false, aiSample = null, aiState = "loading", photoCtl = null;
   async function initAiPhoto() {
-    $("photoBtn").hidden = true;   // AI 사진 읽기를 쓸 수 있을 때만 보여줌 (앱 안에서는 Tesseract가 막혀 있음)
-    const s = await claude.use("sample");
-    const caps = s ? await s.limits().catch(() => null) : null;
-    if (!caps || !caps.images) return;
-    aiSample = s;
-    $("photoInput").accept = caps.images.mediaTypes.join(",");
-    $("photoBtn").hidden = false;
+    inApp = true;
+    try {
+      const s = await claude.use("sample");
+      if (!s) { aiState = "nosample"; return; }
+      const caps = await s.limits().catch(() => null);
+      if (!caps || !caps.images) { aiState = "noimages"; return; }
+      aiSample = s; aiState = "ready";
+      if (caps.images.mediaTypes?.length) $("photoInput").accept = caps.images.mediaTypes.join(",");
+    } catch (e) {
+      console.error(e); aiState = "nosample";
+    }
   }
+  const AI_STATE_TEXT = {
+    loading: "사진 읽기를 준비하는 중이에요. 몇 초 뒤에 다시 눌러주세요.",
+    nosample: "이 화면에서는 Claude 사진 읽기를 쓸 수 없어요. 폰 브라우저 주소창에 링크를 직접 열었다면, claude.ai에 로그인된 Claude 앱이나 웹에서 단어타임을 열어주세요.",
+    noimages: "지금 쓰는 Claude 앱에서는 사진을 보낼 수 없어요. Claude 앱을 최신으로 업데이트하거나, 컴퓨터 웹(claude.ai)에서 열어 시도해주세요.",
+  };
 
   const AI_PROMPT = [
     "이 사진은 영어 단어장 또는 영어 교재의 한 페이지입니다.",
@@ -563,8 +573,8 @@
     } catch (e) {
       if (e && e.code === "cancelled") return null;
       console.error(e);
-      if (e && (e.code === "not_granted" || e.code === "sampling_disabled" || e.code === "images_unavailable")) $("photoBtn").hidden = true;
-      throw new Error(AI_ERRORS[e && e.code] || "사진을 읽지 못했어요. 잠시 뒤 다시 시도하거나, 위에서 직접 입력해주세요.");
+      const code = (e && e.code) || "unknown";
+      throw new Error((AI_ERRORS[code] || "사진을 읽지 못했어요. 잠시 뒤 다시 시도하거나, 위에서 직접 입력해주세요.") + ` (오류: ${code})`);
     } finally {
       if (photoCtl === ctl) photoCtl = null;
     }
@@ -618,6 +628,7 @@
   }
 
   async function handlePhoto(file) {
+    if (inApp && !aiSample) return showReview(AI_STATE_TEXT[aiState] || AI_STATE_TEXT.nosample, []);
     if (aiSample) {
       try {
         const items = await readWithClaude(file);
@@ -648,7 +659,10 @@
     }
   }
 
-  $("photoBtn").addEventListener("click", () => $("photoInput").click());
+  $("photoBtn").addEventListener("click", () => {
+    if (inApp && aiState !== "ready") return showReview(AI_STATE_TEXT[aiState], []);   // 앱 안에서는 Tesseract가 막혀 있음
+    $("photoInput").click();
+  });
   $("photoInput").addEventListener("change", e => {
     const f = e.target.files[0];
     e.target.value = "";
