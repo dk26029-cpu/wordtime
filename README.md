@@ -41,3 +41,4 @@ GitHub Pages로 열면 폰 홈 화면에 앱처럼 설치해서 쓸 수 있어�
 `index.html`에서 `<!--ARTIFACT-START-->`~`<!--ARTIFACT-HEAD-END-->` 부분과
 `<body>`~`<!--ARTIFACT-END-->` 부분을 이어 붙이면 claude.ai 아티팩트용 페이지가 돼요.
 아티팩트로 열면 계정 저장(기기 간 동기화)과 Claude 사진 읽기를 써요.
+ 
